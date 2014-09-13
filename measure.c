@@ -41,7 +41,7 @@ get_resolution_of_clock_gettime(void)
 }
 
 
-int main(int argc, const char *argv[])
+int main()
 {
     get_resolution_of_clock_gettime();
     return 0;
