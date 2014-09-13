@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <time.h>
 #include <errno.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 /**
  * void: 
@@ -42,6 +44,17 @@ get_resolution_of_clock_gettime(void)
     printf("CLOCK_PROCESS_CPUTIME_ID resolution: tv_sec=%ld, tv_nsec=%ld\n",
         end.tv_sec - start.tv_sec, end.tv_nsec - start.tv_nsec);
 
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    getpid();
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    printf("CLOCK_MONOTONIC getpid(): tv_sec=%ld, tv_nsec=%ld\n",
+        end.tv_sec - start.tv_sec, end.tv_nsec - start.tv_nsec);
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    getuid();
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    printf("CLOCK_MONOTONIC getuid(): tv_sec=%ld, tv_nsec=%ld\n",
+        end.tv_sec - start.tv_sec, end.tv_nsec - start.tv_nsec);
 }
 
 
