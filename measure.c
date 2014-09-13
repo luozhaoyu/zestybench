@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <errno.h>
 
 /**
  * void: 
@@ -15,8 +16,15 @@ get_resolution_of_clock_gettime(void)
     struct timespec end;
     //register int i=0;
 
-    clock_getres(CLOCK_MONOTONIC_RAW, &res);
-    printf("clock_getres: tv_sec=%ld, tv_nsec=%ld\n", res.tv_sec, res.tv_nsec);
+    if (clock_getres(CLOCK_MONOTONIC_RAW, &res) != 0) {
+        printf("clock_getres: tv_sec=%ld, tv_nsec=%ld\n", res.tv_sec, res.tv_nsec);
+    } else if (errno == EFAULT) {
+        printf("EFAULT error\n");
+    } else if (errno == EINVAL) {
+        printf("EINVAL error\n");
+    } else if (errno == EPERM) {
+        printf("EPERM error\n");
+    }
 
     clock_gettime(CLOCK_REALTIME, &start);
     clock_gettime(CLOCK_REALTIME, &end);
