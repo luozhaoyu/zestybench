@@ -9,7 +9,7 @@ OBJECTS=$(patsubst %.c,%.o,$(SOURCES))
 VENDOR_OBJS=vendor/vendor.o
 EXECUTABLE=measure
 
-all: $(SOURCES) $(EXECUTABLE)
+all: clean $(SOURCES) $(EXECUTABLE)
 	./measure
 
 $(EXECUTABLE): $(OBJECTS)

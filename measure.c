@@ -18,12 +18,8 @@ get_resolution_of_clock_gettime(void)
 
     if (clock_getres(CLOCK_MONOTONIC_RAW, &res) != 0) {
         printf("clock_getres: tv_sec=%ld, tv_nsec=%ld\n", res.tv_sec, res.tv_nsec);
-    } else if (errno == EFAULT) {
-        printf("EFAULT error\n");
-    } else if (errno == EINVAL) {
-        printf("EINVAL error\n");
-    } else if (errno == EPERM) {
-        printf("EPERM error\n");
+    } else {
+        perror("clock_getres: FAILED");
     }
 
     clock_gettime(CLOCK_REALTIME, &start);
