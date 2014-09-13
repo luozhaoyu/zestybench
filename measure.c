@@ -16,10 +16,10 @@ get_resolution_of_clock_gettime(void)
     struct timespec end;
     //register int i=0;
 
-    if (clock_getres(CLOCK_MONOTONIC_RAW, &res) != 0) {
+    if (clock_getres(CLOCK_MONOTONIC, &res) == 0) {
         printf("clock_getres: tv_sec=%ld, tv_nsec=%ld\n", res.tv_sec, res.tv_nsec);
     } else {
-        perror("clock_getres: FAILED");
+        perror("clock_getres != 0");
     }
 
     clock_gettime(CLOCK_REALTIME, &start);
