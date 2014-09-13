@@ -132,7 +132,7 @@ ipc_time(unsigned expected_size, bool debug)
         if (debug) printf("parent is waiting after %u...\n", expected_size);
         wait(NULL);
         if (debug) printf("parent is returning after %u...\n", expected_size);
-        return (end.tv_sec - start.tv_sec) * 1000000000 + end.tv_nsec - start.tv_nsec;
+        return ((end.tv_sec - start.tv_sec) * 1000000000 + end.tv_nsec - start.tv_nsec) / 2;
     }
 }
 
@@ -147,7 +147,7 @@ int main()
 
     for (i=0; i<10; i++) {
         latency = ipc_time(chunk_size[i], 0);
-        printf("%u:\t%lu\n", chunk_size[i], latency);
+        printf("%u:\t%.2fus\n", chunk_size[i], latency / 1000.0);
     }
     return 0;
 }
