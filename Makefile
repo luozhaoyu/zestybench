@@ -1,5 +1,5 @@
 CC=cc
-CFLAGS=-c -Wall -Wextra -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_REENTRANT $(INCLUDE)
+CFLAGS=-c -g -Wall -Wextra -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64 -D_REENTRANT $(INCLUDE)
 INCLUDE=
 LDFLAGS=
 LIBS=-lrt
@@ -22,3 +22,4 @@ $(OBJECTS):
 clean:
 	rm -rf $(EXECUTABLE)
 	rm -rf $(OBJECTS)
+	rm -rf *.so

@@ -2,93 +2,17 @@
 #include <stdlib.h>
 #include <time.h>
 #include <errno.h>
-#include <sys/types.h>
 #include <unistd.h>
 #include <stdbool.h>
 
 #include <sys/wait.h>
-#include <string.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/un.h>
-
-void err_sys(const char* x)
-{
-    perror(x);
-    exit(1);
-}
-
-
-/* include readn */
-ssize_t                     /* Read "n" bytes from a descriptor. */
-readn(int fd, void *vptr, size_t n)
-{
-    size_t  nleft;
-    ssize_t nread;
-    char    *ptr;
-
-    ptr = vptr;
-    nleft = n;
-    while (nleft > 0) {
-        if ( (nread = read(fd, ptr, nleft)) < 0) {
-            if (errno == EINTR)
-                nread = 0;      /* and call read() again */
-            else
-                return(-1);
-        } else if (nread == 0)
-            break;              /* EOF */
-
-        nleft -= nread;
-        ptr   += nread;
-    }
-    return (n - nleft);      /* return >= 0 */
-}
-/* end readn */
-
-
-ssize_t
-Readn(int fd, void *ptr, size_t nbytes)
-{
-    ssize_t     n;
-
-    if ( (n = readn(fd, ptr, nbytes)) < 0)
-        err_sys("readn error");
-    return(n);
-}
-
-
-ssize_t                         /* Write "n" bytes to a descriptor. */
-writen(int fd, const void *vptr, size_t n)
-{
-    size_t nleft;
-    ssize_t nwritten;
-    const char *ptr;
-
-    ptr = vptr;
-    nleft = n;
-    while (nleft > 0) {
-        if ( (nwritten = write(fd, ptr, nleft)) <= 0) {
-            if (nwritten < 0 && errno == EINTR)
-                nwritten = 0;   /* and call write() again */
-            else
-                return (-1);    /* error */
-         }
-
-         nleft -= nwritten;
-         ptr += nwritten;
-    }
-    return (n);
-}
-
-
-void
-Writen(int fd, void *ptr, ssize_t nbytes)
-{
-    if (writen(fd, ptr, nbytes) != nbytes)
-        err_sys("writen error");
-}
+#include <error.h>
+#include "utils.h"
 
 
 /**
@@ -328,6 +252,7 @@ tcp_latency(unsigned expected_size, bool debug)
         }
         close(listenfd);
         close(connfd);
+        unlink(servaddr.sun_path);
         _exit(EXIT_SUCCESS);
     } else {
         // this is parent
@@ -398,6 +323,7 @@ tcp_throughput(unsigned expected_size, bool debug)
         }
         close(listenfd);
         close(connfd);
+        unlink(servaddr.sun_path);
         _exit(EXIT_SUCCESS);
     } else {
         // this is parent
@@ -423,25 +349,101 @@ tcp_throughput(unsigned expected_size, bool debug)
 }
 
 
+long unsigned
+udp_latency(unsigned expected_size, bool debug)
+{
+    int listenfd, connfd;
+    struct sockaddr_un servaddr, cliaddr={.sun_path="fuckyou", .sun_family=17};
+    socklen_t cliaddrlen;
+    pid_t child_pid;
+    unsigned transferred=0;
+    char buf[512*1024 + 1];
+    int n=0;
+
+    struct timespec start;
+    struct timespec end;
+    struct timespec wait_for_server={.tv_sec=0, .tv_nsec=1000*1000};
+
+    bzero(&servaddr, sizeof(servaddr));
+    bzero(buf, sizeof(buf));
+    servaddr.sun_family = AF_UNIX;
+    strcpy(servaddr.sun_path, "/tmp/zestybench.so");
+
+    child_pid = fork();
+    if (child_pid < 0) {
+        perror("fork");
+    } else if (child_pid == 0) {
+        // this is child, as server
+        listenfd = socket(AF_UNIX, SOCK_DGRAM, 0);
+
+        // remove existed socket
+        unlink(servaddr.sun_path);
+
+        if (bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+            perror("bind");
+
+        // first recieve
+        if ((transferred=recvfrom(listenfd, buf, expected_size, 0,
+            (struct sockaddr *)&cliaddr, &cliaddrlen)) < expected_size)
+            printf("only read %u of %u", transferred, expected_size);
+        // then send
+        if (debug) printf("server recieved %u, sending...\n", transferred);
+        printf("%i path is %s, %i\n", sizeof(cliaddr), cliaddr.sun_path, cliaddr.sun_family);
+        Sendton(listenfd, buf, expected_size, 0,
+            (struct sockaddr *)&cliaddr, cliaddrlen);
+        if (debug) printf("server finished reply");
+
+        close(listenfd);
+        unlink(servaddr.sun_path);
+        _exit(EXIT_SUCCESS);
+    } else {
+        // this is parent
+        connfd = socket(AF_UNIX, SOCK_DGRAM, 0);
+//        while (connect(connfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) != 0) {
+//            if (debug) perror("UDP latency parent connect");
+//            nanosleep(&wait_for_server, NULL);
+//        }
+        nanosleep(&wait_for_server, NULL);
+        // first send
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        Sendton(connfd, buf, expected_size, 0,
+            (struct sockaddr *)&servaddr, sizeof(servaddr));
+
+        if (debug) printf("client has sent %u, reading...\n", expected_size);
+        // then recieve
+        if ((transferred=Readn(connfd, buf, expected_size)) < expected_size)
+            printf("only read %u, %u in total", transferred, expected_size);
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        if (debug) printf("child is sending %u...\n", expected_size);
+        close(connfd);
+        wait(NULL);
+        return ((end.tv_sec - start.tv_sec) * 1000000000 + end.tv_nsec - start.tv_nsec) / 2;
+    }
+    return 0;
+}
+
+
 int main()
 {
-    //get_resolution_of_clock_gettime();
     unsigned chunk_size[10] = {4, 16, 64, 256, 1024, 4*1024, 16*1024, 64*1024,
         256*1024, 512*1024};
     long unsigned t;
     int i;
 
-    printf("SIZE\tPIPE latency\tPIPE throughput\tTCP latency\tTCP throughput\n");
+    get_resolution_of_clock_gettime();
+    printf("SIZE\tPIPE latency\tPIPE throughput\tTCP latency\tTCP throughput\tUDP latency\tUDP throughput\n");
     for (i=0; i<10; i++) {
-        printf("%8u\t", chunk_size[i]);
-        t = pipe_latency(chunk_size[i], 0);
+//        printf("%8u\t", chunk_size[i]);
+//        t = pipe_latency(chunk_size[i], 0);
+//        printf("%8.2fus\t", t / 1000.0);
+//        t = pipe_throughput(chunk_size[i], 0);
+//        printf("%8.2fMB/s\t", chunk_size[i] * 1000000000.0 / t / 1024 / 1024);
+//        t = tcp_latency(chunk_size[i], 0);
+//        printf("%8.2fus\t", t / 1000.0);
+//        t = tcp_throughput(chunk_size[i], 0);
+//        printf("%8.2fMB/s\t\n", chunk_size[i] * 1000000000.0 / t / 1024 / 1024);
+        t = udp_latency(chunk_size[i], 1);
         printf("%8.2fus\t", t / 1000.0);
-        t = pipe_throughput(chunk_size[i], 0);
-        printf("%8.2fMB/s\t", chunk_size[i] * 1000000000.0 / t / 1024 / 1024);
-        t = tcp_latency(chunk_size[i], 0);
-        printf("%8.2fus\t", t / 1000.0);
-        t = tcp_throughput(chunk_size[i], 0);
-        printf("%8.2fMB/s\t\n", chunk_size[i] * 1000000000.0 / t / 1024 / 1024);
     }
     return 0;
 }
