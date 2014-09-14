@@ -154,7 +154,7 @@ pipe_latency(unsigned expected_size, bool debug)
     int pipe_go[2], pipe_come[2];
     pid_t child_pid;
     char buf[512*1024 + 1];
-    unsigned sent=0, recieved=0, transferred;
+    unsigned transferred;
 
     struct timespec start;
     struct timespec end;
@@ -173,16 +173,12 @@ pipe_latency(unsigned expected_size, bool debug)
 
         if (debug) printf("child is reading %u...\n", expected_size);
         // read first
-        while (recieved < expected_size) {
-            transferred = read(pipe_go[0], buf + transferred, expected_size - recieved);
-            recieved += transferred;
+        if ((transferred = Readn(pipe_go[0], buf, expected_size)) < expected_size) {
+            perror("read less than expected");
         }
         if (debug) printf("child is sending %u...\n", expected_size);
         // then send back
-        while (sent < expected_size) {
-            transferred = write(pipe_come[1], buf + transferred, expected_size - sent);
-            sent += transferred;
-        }
+        Writen(pipe_come[1], buf, expected_size);
 
         close(pipe_go[0]);
         close(pipe_come[1]);
@@ -195,16 +191,12 @@ pipe_latency(unsigned expected_size, bool debug)
         clock_gettime(CLOCK_MONOTONIC, &start);
         if (debug) printf("parent is writing %u...\n", expected_size);
         // write first
-        while (sent < expected_size) {
-            transferred = write(pipe_go[1], buf + transferred, expected_size - sent);
-            sent += transferred;
-        }
+        Writen(pipe_go[1], buf, expected_size);
 
         if (debug) printf("parent is reading %u...\n", expected_size);
         // then read
-        while (recieved < expected_size) {
-            transferred = read(pipe_come[0], buf + transferred, expected_size - recieved);
-            recieved += transferred;
+        if ((transferred = Readn(pipe_come[0], buf, expected_size)) < expected_size) {
+            perror("read less than expected");
         }
         clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -224,7 +216,7 @@ pipe_throughput(unsigned expected_size, bool debug)
     int pipe_go[2], pipe_come[2];
     pid_t child_pid;
     char buf[512*1024 + 1];
-    unsigned sent=0, recieved=0, transferred;
+    unsigned transferred;
 
     struct timespec start;
     struct timespec end;
@@ -243,9 +235,8 @@ pipe_throughput(unsigned expected_size, bool debug)
 
         if (debug) printf("child is reading %u...\n", expected_size);
         // read first
-        while (recieved < expected_size) {
-            transferred = read(pipe_go[0], buf + transferred, expected_size - recieved);
-            recieved += transferred;
+        if ((transferred = Readn(pipe_go[0], buf, expected_size)) < expected_size) {
+            perror("read less than expected");
         }
         if (debug) printf("child is sending %u...\n", expected_size);
         // then send back
@@ -262,10 +253,7 @@ pipe_throughput(unsigned expected_size, bool debug)
         clock_gettime(CLOCK_MONOTONIC, &start);
         if (debug) printf("parent is writing %u...\n", expected_size);
         // write first
-        while (sent < expected_size) {
-            transferred = write(pipe_go[1], buf + transferred, expected_size - sent);
-            sent += transferred;
-        }
+        Writen(pipe_go[1], buf, expected_size);
 
         if (debug) printf("parent is reading %u...\n", expected_size);
         // then read
@@ -307,7 +295,7 @@ tcp_latency(unsigned expected_size, bool debug)
 
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sun_family = AF_UNIX;
-    strcpy(servaddr.sun_path, "zestybench.so");
+    strcpy(servaddr.sun_path, "/tmp/zestybench.so");
 
     child_pid = fork();
     if (child_pid < 0) {
@@ -380,7 +368,7 @@ tcp_throughput(unsigned expected_size, bool debug)
 
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sun_family = AF_UNIX;
-    strcpy(servaddr.sun_path, "zestybench.so");
+    strcpy(servaddr.sun_path, "/tmp/zestybench.so");
 
     child_pid = fork();
     if (child_pid < 0) {
