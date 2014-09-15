@@ -352,13 +352,12 @@ tcp_throughput(unsigned expected_size, bool debug)
 long unsigned
 udp_latency(unsigned expected_size, bool debug)
 {
-    int listenfd, connfd;
-    struct sockaddr_un servaddr, cliaddr={.sun_path="fuckyou", .sun_family=17};
+    int listenfd, clientfd;
+    struct sockaddr_un servaddr, client_addr;
     socklen_t cliaddrlen;
     pid_t child_pid;
     unsigned transferred=0;
     char buf[512*1024 + 1];
-    int n=0;
 
     struct timespec start;
     struct timespec end;
@@ -367,7 +366,8 @@ udp_latency(unsigned expected_size, bool debug)
     bzero(&servaddr, sizeof(servaddr));
     bzero(buf, sizeof(buf));
     servaddr.sun_family = AF_UNIX;
-    strcpy(servaddr.sun_path, "/tmp/zestybench.so");
+    strcpy(servaddr.sun_path, "zestybench_server.so");
+    cliaddrlen = sizeof(client_addr);
 
     child_pid = fork();
     if (child_pid < 0) {
@@ -378,19 +378,17 @@ udp_latency(unsigned expected_size, bool debug)
 
         // remove existed socket
         unlink(servaddr.sun_path);
-
         if (bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
-            perror("bind");
+            perror("server bind");
 
         // first recieve
-        if ((transferred=recvfrom(listenfd, buf, expected_size, 0,
-            (struct sockaddr *)&cliaddr, &cliaddrlen)) < expected_size)
+        if ((transferred=Recvfromn(listenfd, buf, expected_size, 0,
+            (struct sockaddr *)&client_addr, &cliaddrlen)) < expected_size)
             printf("only read %u of %u", transferred, expected_size);
         // then send
         if (debug) printf("server recieved %u, sending...\n", transferred);
-        printf("%i path is %s, %i\n", sizeof(cliaddr), cliaddr.sun_path, cliaddr.sun_family);
         Sendton(listenfd, buf, expected_size, 0,
-            (struct sockaddr *)&cliaddr, cliaddrlen);
+            (struct sockaddr *)&client_addr, cliaddrlen);
         if (debug) printf("server finished reply");
 
         close(listenfd);
@@ -398,26 +396,113 @@ udp_latency(unsigned expected_size, bool debug)
         _exit(EXIT_SUCCESS);
     } else {
         // this is parent
-        connfd = socket(AF_UNIX, SOCK_DGRAM, 0);
-//        while (connect(connfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) != 0) {
-//            if (debug) perror("UDP latency parent connect");
-//            nanosleep(&wait_for_server, NULL);
-//        }
-        nanosleep(&wait_for_server, NULL);
+        clientfd = socket(AF_UNIX, SOCK_DGRAM, 0);
+        client_addr.sun_family = AF_UNIX;
+        strcpy(client_addr.sun_path, "zestybench_client.so");
+        unlink(client_addr.sun_path);
+        if (bind(clientfd, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0)
+            perror("client bind");
+        while (connect(clientfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) != 0) {
+            if (debug) perror("UDP latency parent connect");
+            nanosleep(&wait_for_server, NULL);
+        }
+
         // first send
         clock_gettime(CLOCK_MONOTONIC, &start);
-        Sendton(connfd, buf, expected_size, 0,
+        Sendton(clientfd, buf, expected_size, 0,
             (struct sockaddr *)&servaddr, sizeof(servaddr));
 
-        if (debug) printf("client has sent %u, reading...\n", expected_size);
+        if (debug) printf("client has sent %u, reading from %s...\n", expected_size, servaddr.sun_path);
         // then recieve
-        if ((transferred=Readn(connfd, buf, expected_size)) < expected_size)
+        if ((transferred=Readn(clientfd, buf, expected_size)) < expected_size)
             printf("only read %u, %u in total", transferred, expected_size);
         clock_gettime(CLOCK_MONOTONIC, &end);
-        if (debug) printf("child is sending %u...\n", expected_size);
-        close(connfd);
+        if (debug) printf("%u transferred, parent is waiting to quit...\n", expected_size);
+
+        close(clientfd);
+        unlink(client_addr.sun_path);
         wait(NULL);
         return ((end.tv_sec - start.tv_sec) * 1000000000 + end.tv_nsec - start.tv_nsec) / 2;
+    }
+    return 0;
+}
+
+
+long unsigned
+udp_throughput(unsigned expected_size, bool debug)
+{
+    int listenfd, clientfd;
+    struct sockaddr_un servaddr, client_addr;
+    socklen_t cliaddrlen;
+    pid_t child_pid;
+    unsigned transferred=0;
+    char buf[512*1024 + 1];
+
+    struct timespec start;
+    struct timespec end;
+    struct timespec wait_for_server={.tv_sec=0, .tv_nsec=1000*1000};
+
+    bzero(&servaddr, sizeof(servaddr));
+    bzero(buf, sizeof(buf));
+    servaddr.sun_family = AF_UNIX;
+    strcpy(servaddr.sun_path, "zestybench_server.so");
+    cliaddrlen = sizeof(client_addr);
+
+    child_pid = fork();
+    if (child_pid < 0) {
+        perror("fork");
+    } else if (child_pid == 0) {
+        // this is child, as server
+        listenfd = socket(AF_UNIX, SOCK_DGRAM, 0);
+
+        // remove existed socket
+        unlink(servaddr.sun_path);
+        if (bind(listenfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+            perror("server bind");
+
+        // first recieve
+        if ((transferred=Recvfromn(listenfd, buf, expected_size, 0,
+            (struct sockaddr *)&client_addr, &cliaddrlen)) < expected_size)
+            printf("only read %u of %u", transferred, expected_size);
+        // then send
+        if (debug) printf("server recieved %u, sending...\n", transferred);
+        Sendton(listenfd, "F", 1, 0,
+            (struct sockaddr *)&client_addr, cliaddrlen);
+        if (debug) printf("server finished reply");
+
+        close(listenfd);
+        unlink(servaddr.sun_path);
+        _exit(EXIT_SUCCESS);
+    } else {
+        // this is parent
+        clientfd = socket(AF_UNIX, SOCK_DGRAM, 0);
+        client_addr.sun_family = AF_UNIX;
+        strcpy(client_addr.sun_path, "zestybench_client.so");
+        unlink(client_addr.sun_path);
+        if (bind(clientfd, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0)
+            perror("client bind");
+        while (connect(clientfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) != 0) {
+            if (debug) perror("UDP latency parent connect");
+            nanosleep(&wait_for_server, NULL);
+        }
+
+        // first send
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        Sendton(clientfd, buf, expected_size, 0,
+            (struct sockaddr *)&servaddr, sizeof(servaddr));
+
+        if (debug) printf("client has sent %u, reading from %s...\n", expected_size, servaddr.sun_path);
+        // then recieve
+        if ((transferred=Readn(clientfd, buf, 1)) < 1)
+            printf("only read %u, %u in total", transferred, expected_size);
+        if (buf[0] != 'F') perror("Did not get final F");
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        if (debug) printf("%u transferred, parent is waiting to quit...\n", expected_size);
+
+        close(clientfd);
+        unlink(client_addr.sun_path);
+        wait(NULL);
+        return (end.tv_sec - start.tv_sec) * 1000000000 + end.tv_nsec - start.tv_nsec;
     }
     return 0;
 }
@@ -433,17 +518,19 @@ int main()
     get_resolution_of_clock_gettime();
     printf("SIZE\tPIPE latency\tPIPE throughput\tTCP latency\tTCP throughput\tUDP latency\tUDP throughput\n");
     for (i=0; i<10; i++) {
-//        printf("%8u\t", chunk_size[i]);
-//        t = pipe_latency(chunk_size[i], 0);
-//        printf("%8.2fus\t", t / 1000.0);
-//        t = pipe_throughput(chunk_size[i], 0);
-//        printf("%8.2fMB/s\t", chunk_size[i] * 1000000000.0 / t / 1024 / 1024);
-//        t = tcp_latency(chunk_size[i], 0);
-//        printf("%8.2fus\t", t / 1000.0);
-//        t = tcp_throughput(chunk_size[i], 0);
-//        printf("%8.2fMB/s\t\n", chunk_size[i] * 1000000000.0 / t / 1024 / 1024);
-        t = udp_latency(chunk_size[i], 1);
+        printf("%8u\t", chunk_size[i]);
+        t = pipe_latency(chunk_size[i], 0);
         printf("%8.2fus\t", t / 1000.0);
+        t = pipe_throughput(chunk_size[i], 0);
+        printf("%8.2fMB/s\t", chunk_size[i] * 1000000000.0 / t / 1024 / 1024);
+        t = tcp_latency(chunk_size[i], 0);
+        printf("%8.2fus\t", t / 1000.0);
+        t = tcp_throughput(chunk_size[i], 0);
+        printf("%8.2fMB/s\t", chunk_size[i] * 1000000000.0 / t / 1024 / 1024);
+        t = udp_latency(chunk_size[i], 0);
+        printf("%8.2fus\t", t / 1000.0);
+        t = udp_throughput(chunk_size[i], 0);
+        printf("%8.2fMB/s\t\n", chunk_size[i] * 1000000000.0 / t / 1024 / 1024);
     }
     return 0;
 }
