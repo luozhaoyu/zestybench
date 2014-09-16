@@ -29,6 +29,10 @@ readn(int fd, void *vptr, size_t n)
         if ( (nread = read(fd, ptr, nleft)) < 0) {
             if (errno == EINTR)
                 nread = 0;      /* and call read() again */
+            else if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
+                if (DEBUG) printf("nonblock readn\n");
+                break;
+            }
             else
                 return(-1);
         } else if (nread == 0)
@@ -67,6 +71,10 @@ recvfromn(int sockfd, void *buf, size_t len, int flags,
         if ( (nread = recvfrom(sockfd, ptr, nleft, flags, src_addr, addrlen)) < 0) {
             if (errno == EINTR)
                 nread = 0;      /* and call read() again */
+            else if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
+                if (DEBUG) printf("nonblock recvfromn\n");
+                break;
+            }
             else
                 return(-1);
         } else if (nread == 0)
@@ -74,9 +82,7 @@ recvfromn(int sockfd, void *buf, size_t len, int flags,
 
         nleft -= nread;
         ptr   += nread;
-        if (DEBUG) printf("recvfrom nread: %i, nleft: %u\n", nread, nleft);
     }
-    if (DEBUG) printf("recvfromn nleft: %u of %u\n", nleft, len);
     return (len - nleft);      /* return >= 0 */
 }
 
@@ -90,6 +96,19 @@ Recvfromn(int sockfd, void *buf, size_t len, int flags,
         err_sys("recvfromn error");
     return(n);
 }
+
+
+//ssize_t
+//recvfrom_nonblock(int sockfd, void *buf, size_t len, int flags,
+//    struct sockaddr *src_addr, socklen_t *addrlen) {
+//    ssize_t n;
+//
+//    if ( (n = recvfromn(sockfd, buf, len, flags, src_addr, addrlen)) < 0)
+//        if (errno == EAGAIN) || (errno == EWOULDBLOCK) && DEBUG
+//            printf("recvfrom_nonblock read only %");
+//        err_sys("recvfromn error");
+//    return(n);
+//}
 
 
 ssize_t                         /* Write "n" bytes to a descriptor. */
@@ -145,8 +164,6 @@ sendton(int sockfd, const void *buf, size_t len, int flags,
          nleft -= nwritten;
          ptr += nwritten;
     }
-    assert(nleft == 0);
-    if (DEBUG) printf("sendto len: %u, nleft: %u\n", len, nleft);
     return (len - nleft);
 }
 
