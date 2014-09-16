@@ -74,7 +74,9 @@ recvfromn(int sockfd, void *buf, size_t len, int flags,
 
         nleft -= nread;
         ptr   += nread;
+        if (DEBUG) printf("recvfrom nread: %i, nleft: %u\n", nread, nleft);
     }
+    if (DEBUG) printf("recvfromn nleft: %u of %u\n", nleft, len);
     return (len - nleft);      /* return >= 0 */
 }
 
@@ -143,6 +145,8 @@ sendton(int sockfd, const void *buf, size_t len, int flags,
          nleft -= nwritten;
          ptr += nwritten;
     }
+    assert(nleft == 0);
+    if (DEBUG) printf("sendto len: %u, nleft: %u\n", len, nleft);
     return (len - nleft);
 }
 

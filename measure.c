@@ -14,6 +14,8 @@
 #include <error.h>
 #include "utils.h"
 
+#define BUF_SIZE (512*1024 + 1)
+
 
 /**
  * void: 
@@ -77,13 +79,13 @@ pipe_latency(unsigned expected_size, bool debug)
 {
     int pipe_go[2], pipe_come[2];
     pid_t child_pid;
-    char buf[512*1024 + 1];
+    char buf[BUF_SIZE];
     unsigned transferred;
 
     struct timespec start;
     struct timespec end;
 
-    memset(buf, 0, 512*1024 + 1);
+    memset(buf, 0, BUF_SIZE);
     pipe(pipe_go);
     pipe(pipe_come);
     child_pid = fork();
@@ -139,13 +141,13 @@ pipe_throughput(unsigned expected_size, bool debug)
 {
     int pipe_go[2], pipe_come[2];
     pid_t child_pid;
-    char buf[512*1024 + 1];
+    char buf[BUF_SIZE];
     unsigned transferred;
 
     struct timespec start;
     struct timespec end;
 
-    memset(buf, 0, 512*1024 + 1);
+    memset(buf, 0, BUF_SIZE);
     pipe(pipe_go);
     pipe(pipe_come);
     child_pid = fork();
@@ -211,7 +213,7 @@ tcp_latency(unsigned expected_size, bool debug)
     socklen_t cliaddrlen;
     pid_t child_pid;
     unsigned transferred=0;
-    char buf[512*1024 + 1];
+    char buf[BUF_SIZE];
 
     struct timespec start;
     struct timespec end;
@@ -285,7 +287,7 @@ tcp_throughput(unsigned expected_size, bool debug)
     socklen_t cliaddrlen;
     pid_t child_pid;
     unsigned transferred=0;
-    char buf[512*1024 + 1];
+    char buf[BUF_SIZE];
 
     struct timespec start;
     struct timespec end;
@@ -357,7 +359,7 @@ udp_latency(unsigned expected_size, bool debug)
     socklen_t cliaddrlen;
     pid_t child_pid;
     unsigned transferred=0;
-    char buf[512*1024 + 1];
+    char buf[BUF_SIZE];
 
     struct timespec start;
     struct timespec end;
@@ -436,7 +438,7 @@ udp_throughput(unsigned expected_size, bool debug)
     socklen_t cliaddrlen;
     pid_t child_pid;
     unsigned transferred=0;
-    char buf[512*1024 + 1];
+    char buf[BUF_SIZE];
 
     struct timespec start;
     struct timespec end;

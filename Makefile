@@ -23,3 +23,8 @@ clean:
 	rm -rf $(EXECUTABLE)
 	rm -rf $(OBJECTS)
 	rm -rf *.so
+
+net: clean
+	$(CC) -lrt -D SERVER_MAIN -o server server.c utils.c
+	$(CC) -lrt -D CLIENT_MAIN -o client client.c utils.c
+	./server udp

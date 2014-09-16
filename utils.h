@@ -2,10 +2,12 @@
 #define __UTILS_H
 
 #include <sys/types.h>
+#include <assert.h>
 
 #define MAX_UDP_SIZE 65507
 #define MIN(a,b) (((a)<(b))?(a):(b))
 
+#define DEBUG 1
 
 void err_sys(const char* x);
 ssize_t readn(int fd, void *vptr, size_t n);
