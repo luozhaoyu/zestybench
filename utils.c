@@ -157,6 +157,10 @@ sendton(int sockfd, const void *buf, size_t len, int flags,
         if ( (nwritten = sendto(sockfd, ptr, MIN(nleft, MAX_UDP_SIZE), flags, dest_addr, addrlen)) <= 0) {
             if (nwritten < 0 && errno == EINTR)
                 nwritten = 0;   /* and call write() again */
+            else if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
+                if (DEBUG) printf("nonblock sendto\n");
+                break;
+            }
             else
                 return (-1);    /* error */
          }
@@ -171,6 +175,6 @@ sendton(int sockfd, const void *buf, size_t len, int flags,
 void
 Sendton(int sockfd, const void *buf, size_t len, int flags,
     const struct sockaddr *dest_addr, socklen_t addrlen) {
-    if (sendton(sockfd, buf, len, flags, dest_addr, addrlen) < (ssize_t)len)
+    if (sendton(sockfd, buf, len, flags, dest_addr, addrlen) < 0)
         err_sys("sendton error");
 }
