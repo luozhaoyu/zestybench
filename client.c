@@ -1,5 +1,7 @@
 #include "protocol.h"
 
+#define INTERVAL (1000*1000*50)
+
 /**
  * struct sockaddr_in serv: 
  *
@@ -11,7 +13,6 @@ call_tcp(struct sockaddr_in servaddr, bool require_echo, unsigned expected_size,
 {
     int sockfd;
     char buf[BUF_SIZE];
-    unsigned n;
 
     struct timespec start;
     struct timespec end;
@@ -48,7 +49,6 @@ call_udp(struct sockaddr_in servaddr, bool require_echo, unsigned expected_size,
 {
     int sockfd;
     char buf[BUF_SIZE];
-    unsigned n;
 
     struct timespec start;
     struct timespec end;
@@ -102,6 +102,9 @@ call_udp_epoll(struct sockaddr_in servaddr, unsigned expected_size,
     struct epoll_event ev, events[MAX_EVENTS];
     int nfds, epollfd;
 
+    struct timespec wait_for_server={.tv_sec=0, .tv_nsec=INTERVAL};
+
+    nanosleep(&wait_for_server, NULL);
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (setNonblocking(sockfd) != 0) perror("setNonblocking");
 
@@ -161,11 +164,13 @@ int main(int argc, char**argv)
     unsigned latency, total_time;
     int received;
     int i;
+    int repeat=1;
 
-    if (argc != 3)
-    {
-       printf("usage: [udp|tcp] <IP address>\n");
-       exit(1);
+    if (argc == 4) {
+        repeat = atoi(argv[3]);
+    } else if (argc != 3) {
+        printf("usage: [udp|tcp] <IP address>\n");
+        exit(1);
     }
 
     bzero(&servaddr,sizeof(servaddr));
@@ -173,41 +178,44 @@ int main(int argc, char**argv)
     servaddr.sin_addr.s_addr=inet_addr(argv[2]);
     servaddr.sin_port=htons(PORT);
 
-    if (strcmp(argv[1], "udp") == 0) {
-        printf("SIZE\tUDP latency us\tUDP througput MB/s\tLOST\tLOSS rate%%\n");
-        for (i=0; i<sizeof(chunk_size) / sizeof(chunk_size[0]); i++) {
-            call_udp(servaddr, 1, chunk_size[i], &latency, NULL);
-            call_udp(servaddr, 0, chunk_size[i], &total_time, &received);
-            printf("%8u\t%8u\t%8.2f\t%8u\t%8.2f\n", chunk_size[i], latency / 1000,
-                chunk_size[i] * 1000000000.0 / total_time / 1024 / 1024, chunk_size[i] - received,
-                (chunk_size[i] - received) * 100.0 / chunk_size[i]);
+    while (repeat) {
+        if (strcmp(argv[1], "udp") == 0) {
+            printf("SIZE\tUDP latency us\tUDP througput MB/s\tLOST\tLOSS rate%%\n");
+            for (i=0; i<sizeof(chunk_size) / sizeof(chunk_size[0]); i++) {
+                call_udp(servaddr, 1, chunk_size[i], &latency, NULL);
+                call_udp(servaddr, 0, chunk_size[i], &total_time, &received);
+                printf("%8u\t%8u\t%8.2f\t%8u\t%8.2f\n", chunk_size[i], latency / 1000,
+                    chunk_size[i] * 1000000000.0 / total_time / 1024 / 1024, chunk_size[i] - received,
+                    (chunk_size[i] - received) * 100.0 / chunk_size[i]);
+            }
+        } else if (strcmp(argv[1], "udpl") == 0) {
+            printf("SIZE\tUDP latency us\tLOST\tLOSS Rate%%\n");
+            for (i=0; i<sizeof(chunk_size) / sizeof(chunk_size[0]); i++) {
+                call_udp_epoll(servaddr, chunk_size[i], &latency, &received, 1);
+                printf("%8u\t%8u\t%8u\t%8.2f\n", chunk_size[i], latency / 1000,
+                    chunk_size[i] - received,
+                    (chunk_size[i] - received) * 100.0 / chunk_size[i]);
+            }
+        } else if (strcmp(argv[1], "udpt") == 0) {
+            printf("SIZE\tUDP throughput MB/s\tLOST\tLOSS Rate%%\n");
+            for (i=0; i<sizeof(chunk_size) / sizeof(chunk_size[0]); i++) {
+                call_udp_epoll(servaddr, chunk_size[i], &latency, &received, 0);
+                printf("%8u\t%8.2f\t%8u\t%8.2f\n", chunk_size[i],
+                    chunk_size[i] * 1000000000.0 / latency / 1024 / 1024,
+                    chunk_size[i] - received,
+                    (chunk_size[i] - received) * 100.0 / chunk_size[i]);
+            }
+        } else if (strcmp(argv[1], "tcp") == 0) {
+            printf("SIZE\tTCP latency us\tTCP througput MB/s\tLOST\tLOSS rate\n");
+            for (i=0; i<sizeof(chunk_size) / sizeof(chunk_size[0]); i++) {
+                call_tcp(servaddr, 1, chunk_size[i], &latency, NULL);
+                call_tcp(servaddr, 0, chunk_size[i], &total_time, &received);
+                printf("%8u\t%8u\t%8.2f\t%8u\t%8.2f\n", chunk_size[i], latency / 1000,
+                    chunk_size[i] * 1000000000.0 / total_time / 1024 / 1024, chunk_size[i] - received,
+                    (chunk_size[i] - received) * 100.0 / chunk_size[i]);
+            }
         }
-    } else if (strcmp(argv[1], "udpl") == 0) {
-        printf("SIZE\tUDP latency us\tLOST\tLOSS Rate%%\n");
-        for (i=0; i<sizeof(chunk_size) / sizeof(chunk_size[0]); i++) {
-            call_udp_epoll(servaddr, chunk_size[i], &latency, &received, 1);
-            printf("%8u\t%8u\t%8u\t%8.2f\n", chunk_size[i], latency / 1000,
-                chunk_size[i] - received,
-                (chunk_size[i] - received) * 100.0 / chunk_size[i]);
-        }
-    } else if (strcmp(argv[1], "udpt") == 0) {
-        printf("SIZE\tUDP throughput MB/s\tLOST\tLOSS Rate%%\n");
-        for (i=0; i<sizeof(chunk_size) / sizeof(chunk_size[0]); i++) {
-            call_udp_epoll(servaddr, chunk_size[i], &latency, &received, 0);
-            printf("%8u\t%8.2f\t%8u\t%8.2f\n", chunk_size[i],
-                chunk_size[i] * 1000000000.0 / latency / 1024 / 1024,
-                chunk_size[i] - received,
-                (chunk_size[i] - received) * 100.0 / chunk_size[i]);
-        }
-    } else if (strcmp(argv[1], "tcp") == 0) {
-        printf("SIZE\tTCP latency us\tTCP througput MB/s\tLOST\tLOSS rate\n");
-        for (i=0; i<sizeof(chunk_size) / sizeof(chunk_size[0]); i++) {
-            call_tcp(servaddr, 1, chunk_size[i], &latency, NULL);
-            call_tcp(servaddr, 0, chunk_size[i], &total_time, &received);
-            printf("%8u\t%8u\t%8.2f\t%8u\t%8.2f\n", chunk_size[i], latency / 1000,
-                chunk_size[i] * 1000000000.0 / total_time / 1024 / 1024, chunk_size[i] - received,
-                (chunk_size[i] - received) * 100.0 / chunk_size[i]);
-        }
+        repeat--;
     }
 }
 #endif

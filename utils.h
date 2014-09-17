@@ -7,7 +7,9 @@
 #define MAX_UDP_SIZE 65507
 #define MIN(a,b) (((a)<(b))?(a):(b))
 
+#ifndef DEBUG
 #define DEBUG 0
+#endif
 
 void err_sys(const char* x);
 ssize_t readn(int fd, void *vptr, size_t n);

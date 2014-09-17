@@ -15,6 +15,8 @@
 #include "utils.h"
 
 #define BUF_SIZE (512*1024 + 1)
+#define SERVER_SOCK_PATH "/tmp/zesty.server.so"
+#define CLIENT_SOCK_PATH "/tmp/zesty.client.so"
 
 
 /**
@@ -221,7 +223,7 @@ tcp_latency(unsigned expected_size, bool debug)
 
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sun_family = AF_UNIX;
-    strcpy(servaddr.sun_path, "/tmp/zestybench.so");
+    strcpy(servaddr.sun_path, SERVER_SOCK_PATH);
 
     child_pid = fork();
     if (child_pid < 0) {
@@ -295,7 +297,7 @@ tcp_throughput(unsigned expected_size, bool debug)
 
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sun_family = AF_UNIX;
-    strcpy(servaddr.sun_path, "/tmp/zestybench.so");
+    strcpy(servaddr.sun_path, SERVER_SOCK_PATH);
 
     child_pid = fork();
     if (child_pid < 0) {
@@ -368,7 +370,7 @@ udp_latency(unsigned expected_size, bool debug)
     bzero(&servaddr, sizeof(servaddr));
     bzero(buf, sizeof(buf));
     servaddr.sun_family = AF_UNIX;
-    strcpy(servaddr.sun_path, "zestybench_server.so");
+    strcpy(servaddr.sun_path, SERVER_SOCK_PATH);
     cliaddrlen = sizeof(client_addr);
 
     child_pid = fork();
@@ -400,7 +402,7 @@ udp_latency(unsigned expected_size, bool debug)
         // this is parent
         clientfd = socket(AF_UNIX, SOCK_DGRAM, 0);
         client_addr.sun_family = AF_UNIX;
-        strcpy(client_addr.sun_path, "zestybench_client.so");
+        strcpy(client_addr.sun_path, CLIENT_SOCK_PATH);
         unlink(client_addr.sun_path);
         if (bind(clientfd, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0)
             perror("client bind");
@@ -447,7 +449,7 @@ udp_throughput(unsigned expected_size, bool debug)
     bzero(&servaddr, sizeof(servaddr));
     bzero(buf, sizeof(buf));
     servaddr.sun_family = AF_UNIX;
-    strcpy(servaddr.sun_path, "zestybench_server.so");
+    strcpy(servaddr.sun_path, SERVER_SOCK_PATH);
     cliaddrlen = sizeof(client_addr);
 
     child_pid = fork();
@@ -479,7 +481,7 @@ udp_throughput(unsigned expected_size, bool debug)
         // this is parent
         clientfd = socket(AF_UNIX, SOCK_DGRAM, 0);
         client_addr.sun_family = AF_UNIX;
-        strcpy(client_addr.sun_path, "zestybench_client.so");
+        strcpy(client_addr.sun_path, CLIENT_SOCK_PATH);
         unlink(client_addr.sun_path);
         if (bind(clientfd, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0)
             perror("client bind");
@@ -510,29 +512,35 @@ udp_throughput(unsigned expected_size, bool debug)
 }
 
 
-int main()
+int main(int argc, char**argv)
 {
-    unsigned chunk_size[10] = {4, 16, 64, 256, 1024, 4*1024, 16*1024, 64*1024,
+    unsigned chunk_size[] = {4, 16, 64, 256, 1024, 4*1024, 16*1024, 64*1024,
         256*1024, 512*1024};
     long unsigned t;
     int i;
+    int repeat=1;
+    if (argc == 2)
+        repeat = atoi(argv[1]);
 
     get_resolution_of_clock_gettime();
-    printf("SIZE\tPIPE latency\tPIPE throughput\tTCP latency\tTCP throughput\tUDP latency\tUDP throughput\n");
-    for (i=0; i<10; i++) {
-        printf("%8u\t", chunk_size[i]);
-        t = pipe_latency(chunk_size[i], 0);
-        printf("%8.2fus\t", t / 1000.0);
-        t = pipe_throughput(chunk_size[i], 0);
-        printf("%8.2fMB/s\t", chunk_size[i] * 1000000000.0 / t / 1024 / 1024);
-        t = tcp_latency(chunk_size[i], 0);
-        printf("%8.2fus\t", t / 1000.0);
-        t = tcp_throughput(chunk_size[i], 0);
-        printf("%8.2fMB/s\t", chunk_size[i] * 1000000000.0 / t / 1024 / 1024);
-        t = udp_latency(chunk_size[i], 0);
-        printf("%8.2fus\t", t / 1000.0);
-        t = udp_throughput(chunk_size[i], 0);
-        printf("%8.2fMB/s\t\n", chunk_size[i] * 1000000000.0 / t / 1024 / 1024);
+    printf("SIZE\tPIPE latency us\tPIPE throughput MB/s\tTCP latency us\tTCP throughput MB/s\tUDP latency us\tUDP throughput MB/s\n");
+    while (repeat) {
+        for (i=0; i<10; i++) {
+            printf("%8u\t", chunk_size[i]);
+            t = pipe_latency(chunk_size[i], 0);
+            printf("%8.2f\t", t / 1000.0);
+            t = pipe_throughput(chunk_size[i], 0);
+            printf("%8.2f\t", chunk_size[i] * 1000000000.0 / t / 1024 / 1024);
+            t = tcp_latency(chunk_size[i], 0);
+            printf("%8.2f\t", t / 1000.0);
+            t = tcp_throughput(chunk_size[i], 0);
+            printf("%8.2f\t", chunk_size[i] * 1000000000.0 / t / 1024 / 1024);
+            t = udp_latency(chunk_size[i], 0);
+            printf("%8.2f\t", t / 1000.0);
+            t = udp_throughput(chunk_size[i], 0);
+            printf("%8.2f\t\n", chunk_size[i] * 1000000000.0 / t / 1024 / 1024);
+        }
+        repeat--;
     }
     return 0;
 }

@@ -15,10 +15,12 @@ start_tcp(struct sockaddr_in servaddr)
     char buf[BUF_SIZE];
     unsigned expected_size;
     bool require_echo;
+    int optval=1;
 
     listenfd=socket(AF_INET,SOCK_STREAM,0);
-    bind(listenfd,(struct sockaddr *)&servaddr,sizeof(servaddr));
-    listen(listenfd,1024);
+    setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+    if (bind(listenfd,(struct sockaddr *)&servaddr,sizeof(servaddr)) != 0) perror("bind");
+    if (listen(listenfd,1024) != 0) perror("listen");
     printf("tcp server at: %d\n", PORT);
     while (1) {
         clilen=sizeof(cliaddr);
