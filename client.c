@@ -16,13 +16,20 @@ call_tcp(struct sockaddr_in servaddr, bool require_echo, unsigned expected_size,
 
     struct timespec start;
     struct timespec end;
+    int optval=1;
 
     sockfd=socket(AF_INET,SOCK_STREAM,0);
+    if (setsockopt(sockfd, IPPROTO_IP, TCP_NODELAY, &optval, sizeof(optval)) != 0)
+        perror("setsockopt TCP_NODELAY");
     if (connect(sockfd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
         perror("connect");
 
+    struct timespec wait_for_server={.tv_sec=0, .tv_nsec=INTERVAL};
+    nanosleep(&wait_for_server, NULL);
+
     Writen(sockfd, &expected_size, sizeof(unsigned));
     Writen(sockfd, &require_echo, sizeof(bool));
+    // could ignore the header time
     clock_gettime(CLOCK_MONOTONIC, &start);
     Writen(sockfd, buf, expected_size);
     if (DEBUG) printf("buf sent\n");
@@ -88,8 +95,8 @@ call_udp(struct sockaddr_in servaddr, bool require_echo, unsigned expected_size,
 
 
 void
-call_udp_epoll(struct sockaddr_in servaddr, unsigned expected_size,
-    unsigned *latency, int *received, bool is_test_latency)
+call_udpl_epoll(struct sockaddr_in servaddr, unsigned expected_size,
+    unsigned *latency, size_t sender_buf_size)
 {
     int sockfd;
     char buf[BUF_SIZE];
@@ -97,12 +104,16 @@ call_udp_epoll(struct sockaddr_in servaddr, unsigned expected_size,
     struct timespec start;
     struct timespec end;
 
-    int n;
+    int n, i;
+    size_t sent_size=0;
+    size_t max_send_size=0;
 
     struct epoll_event ev, events[MAX_EVENTS];
     int nfds, epollfd;
 
     struct timespec wait_for_server={.tv_sec=0, .tv_nsec=INTERVAL};
+
+    assert(sender_buf_size <= BUF_SIZE);
 
     nanosleep(&wait_for_server, NULL);
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -122,35 +133,123 @@ call_udp_epoll(struct sockaddr_in servaddr, unsigned expected_size,
         exit(EXIT_FAILURE);
     }
 
+    max_send_size = MIN(expected_size, sender_buf_size);
     clock_gettime(CLOCK_MONOTONIC, &start);
-    Sendton(sockfd, buf, expected_size, 0,
+    // send something first
+    n = sendton(sockfd, buf, max_send_size, 0,
         (struct sockaddr *)&servaddr, sizeof(servaddr));
+    if (n < 0)
+        perror("client sendto");
+
+    while (sent_size < expected_size) {
+        nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
+        if (nfds == -1) {
+            perror("epoll_pwait");
+            exit(EXIT_FAILURE);
+        }
+
+        for (i = 0; i < nfds; ++i) {
+            if (events[i].events & EPOLLIN) { // readable
+                n = Readn(events[i].data.fd, buf, BUF_SIZE);
+                sent_size += n; // only the echoed size is effective
+                if (DEBUG) printf("%u / %u<<<<%u / %u echo rate\n", n, MIN(max_send_size, expected_size - sent_size), sent_size, expected_size);
+                if (sendton(sockfd, buf, MIN(max_send_size, expected_size - sent_size), 0,
+                    (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+                    perror("client sendto");
+            }
+        }
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    *latency = ((end.tv_sec - start.tv_sec) * 1000000000 +
+        end.tv_nsec - start.tv_nsec) / 2;
+    close(sockfd);
+}
+
+
+void
+call_udpt_epoll(struct sockaddr_in servaddr, unsigned expected_size,
+    unsigned *latency, size_t sender_buf_size, size_t *received)
+{
+    int sockfd;
+    char buf[BUF_SIZE];
+
+    struct timespec start;
+    struct timespec end;
+
+    int n, i, ret;
+    size_t sent_size=0;
+    size_t max_send_size, send_size;
+
+    struct epoll_event ev, events[MAX_EVENTS];
+    int nfds, epollfd;
+
+    struct timespec wait_for_server={.tv_sec=0, .tv_nsec=INTERVAL};
+
+    assert(sender_buf_size <= BUF_SIZE);
+
+    nanosleep(&wait_for_server, NULL);
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (setNonblocking(sockfd) != 0) perror("setNonblocking");
+
+    epollfd = epoll_create(16);
+    if (epollfd == -1) {
+        perror("epoll_create");
+        exit(EXIT_FAILURE);
+    }
+
+    ev.events = EPOLLIN;
+    ev.data.fd = sockfd;
+    // need not care about blocking
+    if (epoll_ctl(epollfd, EPOLL_CTL_ADD, sockfd, &ev) == -1) {
+        perror("epoll_ctl: sockfd");
+        exit(EXIT_FAILURE);
+    }
+
+    max_send_size = MIN(expected_size, sender_buf_size);
+    *received = 0;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    // when performing throughput, sender needs not to care about receiver
+    while (sent_size < expected_size) {
+        send_size = MIN(max_send_size, expected_size - sent_size);
+        Sendton(sockfd, buf, send_size, 0,
+            (struct sockaddr *)&servaddr, sizeof(servaddr));
+        if (DEBUG) printf("%u>>>>%u / %u sendto\n", send_size, sent_size, expected_size);
+        sent_size += send_size;
+    }
 
     if (DEBUG) printf("client sent %u\n", expected_size);
-    // client needs not to loop
     nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
     if (nfds == -1) {
         perror("epoll_pwait");
         exit(EXIT_FAILURE);
     }
 
-    for (n = 0; n < nfds; ++n) {
-        if (events[n].events & EPOLLIN) { // readable
-            if (is_test_latency)
-                *received = Readn(events[n].data.fd, buf, BUF_SIZE);
-            else
-                Readn(events[n].data.fd, received, sizeof(int));
+    for (i = 0; i < nfds; ++i) {
+        if (events[i].events & EPOLLIN) { // readable
+            ret = read(events[i].data.fd, &n, sizeof(int));
+            if (ret < 0) {
+                if (!((errno == EAGAIN) || (errno == EWOULDBLOCK)))
+                    perror("triggered by epoll, but fail on reading");
+                break;
+            } else
+                while (ret) {
+                    *received += n;
+                    // since server will respond to every sent packet, there may be multiple responds
+                    ret = read(events[i].data.fd, &n, sizeof(int));
+                    if (DEBUG) printf("<<<<%u echoed\n", n);
+                    if (ret < 0) {
+                        if (!((errno == EAGAIN) || (errno == EWOULDBLOCK)))
+                            perror("triggered by epoll, but fail on reading");
+                        break;
+                    }
+                }
             clock_gettime(CLOCK_MONOTONIC, &end);
             if (DEBUG) printf("Sent %u, Received %i\n", expected_size, *received);
         }
     }
-
-    if (is_test_latency)
-        *latency = ((end.tv_sec - start.tv_sec) * 1000000000 +
-            end.tv_nsec - start.tv_nsec) / 2;
-    else
-        *latency = (end.tv_sec - start.tv_sec) * 1000000000 +
-            end.tv_nsec - start.tv_nsec;
+    *latency = (end.tv_sec - start.tv_sec) * 1000000000 +
+        end.tv_nsec - start.tv_nsec;
     close(sockfd);
 }
 
@@ -159,17 +258,22 @@ call_udp_epoll(struct sockaddr_in servaddr, unsigned expected_size,
 int main(int argc, char**argv)
 {
     struct sockaddr_in servaddr;
-    unsigned chunk_size[] = {4, 16, 64, 256, 1024, 4*1024, 16*1024, 64*1024,
-        256*1024, 512*1024};
+    //unsigned chunk_size[] = {4, 16, 64, 256, 1024, 4*1024, 16*1024, 64*1024,
+    //    256*1024, 512*1024};
+    unsigned chunk_size[] = {4, 16, 64, 256, 1024, 4*1024, 16*1024, 32*1024};
     unsigned latency, total_time;
-    int received;
+    size_t received;
     int i;
     int repeat=1;
+    size_t sender_buf_size=1024;
 
-    if (argc == 4) {
+    if (argc >= 5)
+        sender_buf_size = atoi(argv[4]);
+    if (argc >= 4)
         repeat = atoi(argv[3]);
-    } else if (argc != 3) {
-        printf("usage: [udp|tcp] <IP address>\n");
+
+    if (argc < 3) {
+        printf("usage: [udp|tcp] <IP address> <repeat times> <sender_buf_size=1024>\n");
         exit(1);
     }
 
@@ -189,17 +293,15 @@ int main(int argc, char**argv)
                     (chunk_size[i] - received) * 100.0 / chunk_size[i]);
             }
         } else if (strcmp(argv[1], "udpl") == 0) {
-            printf("SIZE\tUDP latency us\tLOST\tLOSS Rate%%\n");
+            printf("SIZE\tUDP latency us\tsender_buf_size: %i\n", sender_buf_size);
             for (i=0; i<sizeof(chunk_size) / sizeof(chunk_size[0]); i++) {
-                call_udp_epoll(servaddr, chunk_size[i], &latency, &received, 1);
-                printf("%8u\t%8u\t%8u\t%8.2f\n", chunk_size[i], latency / 1000,
-                    chunk_size[i] - received,
-                    (chunk_size[i] - received) * 100.0 / chunk_size[i]);
+                call_udpl_epoll(servaddr, chunk_size[i], &latency, sender_buf_size);
+                printf("%8u\t%8u\n", chunk_size[i], latency / 1000);
             }
         } else if (strcmp(argv[1], "udpt") == 0) {
-            printf("SIZE\tUDP throughput MB/s\tLOST\tLOSS Rate%%\n");
+            printf("SIZE\tUDP throughput MB/s\tLOST\tLOSS Rate%%\tsender_buf_size: %i\n", sender_buf_size);
             for (i=0; i<sizeof(chunk_size) / sizeof(chunk_size[0]); i++) {
-                call_udp_epoll(servaddr, chunk_size[i], &latency, &received, 0);
+                call_udpt_epoll(servaddr, chunk_size[i], &latency, sender_buf_size, &received);
                 printf("%8u\t%8.2f\t%8u\t%8.2f\n", chunk_size[i],
                     chunk_size[i] * 1000000000.0 / latency / 1024 / 1024,
                     chunk_size[i] - received,

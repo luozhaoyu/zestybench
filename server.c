@@ -18,7 +18,10 @@ start_tcp(struct sockaddr_in servaddr)
     int optval=1;
 
     listenfd=socket(AF_INET,SOCK_STREAM,0);
-    setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+    if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) != 0)
+        perror("setsockopt SO_REUSEADDR");
+    if (setsockopt(listenfd, IPPROTO_IP, TCP_NODELAY, &optval, sizeof(optval)) != 0)
+        perror("setsockopt TCP_NODELAY");
     if (bind(listenfd,(struct sockaddr *)&servaddr,sizeof(servaddr)) != 0) perror("bind");
     if (listen(listenfd,1024) != 0) perror("listen");
     printf("tcp server at: %d\n", PORT);
@@ -202,7 +205,9 @@ start_udp_epoll(struct sockaddr_in servaddr, bool is_test_latency)
 
         for (i = 0; i < nfds; ++i) {
             if (events[i].events & EPOLLIN) { // readable
-                n = Recvfromn(events[i].data.fd, buf, BUF_SIZE, 0,
+                //n = Recvfromn(events[i].data.fd, buf, BUF_SIZE, 0,
+                //    (struct sockaddr *)&cliaddr, &clilen);
+                n = recvfrom(events[i].data.fd, buf, BUF_SIZE, 0,
                     (struct sockaddr *)&cliaddr, &clilen);
                 if (DEBUG) printf("Received %i\n", n);
                 if (is_test_latency)

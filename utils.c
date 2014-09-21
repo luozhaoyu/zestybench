@@ -160,7 +160,7 @@ sendton(int sockfd, const void *buf, size_t len, int flags,
             if (nwritten < 0 && errno == EINTR)
                 nwritten = 0;   /* and call write() again */
             else if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
-                if (DEBUG) printf("nonblock sendto\n");
+                if (DEBUG) printf("sendton: EGAIN or EWOULDBLOCK\n");
                 break;
             }
             else

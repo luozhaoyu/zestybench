@@ -8,7 +8,7 @@
 #define MIN(a,b) (((a)<(b))?(a):(b))
 
 #ifndef DEBUG
-#define DEBUG 0
+#define DEBUG 1
 #endif
 
 void err_sys(const char* x);

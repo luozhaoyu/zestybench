@@ -2,6 +2,7 @@
 #define __PROTOCOL_H
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -9,6 +10,7 @@
 #include <unistd.h>
 #include <strings.h>
 #include <sys/epoll.h>
+#include <errno.h>
 
 #include "utils.h"
 
