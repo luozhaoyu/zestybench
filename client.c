@@ -1,6 +1,7 @@
 #include "protocol.h"
 
 #define INTERVAL (1000*1000*50)
+#define EPOLL_MILLI_TIMEOUT 10
 
 /**
  * struct sockaddr_in serv: 
@@ -9,7 +10,7 @@
  **/
 void
 call_tcp(struct sockaddr_in servaddr, bool require_echo, unsigned expected_size,
-    unsigned *latency, int *received)
+    unsigned *latency, size_t *received)
 {
     int sockfd;
     char buf[BUF_SIZE];
@@ -52,7 +53,7 @@ call_tcp(struct sockaddr_in servaddr, bool require_echo, unsigned expected_size,
 
 void
 call_udp(struct sockaddr_in servaddr, bool require_echo, unsigned expected_size,
-    unsigned *latency, int *received)
+    unsigned *latency, size_t *received)
 {
     int sockfd;
     char buf[BUF_SIZE];
@@ -133,7 +134,7 @@ call_udpl_epoll(struct sockaddr_in servaddr, unsigned expected_size,
         exit(EXIT_FAILURE);
     }
 
-    max_send_size = MIN(expected_size, sender_buf_size);
+    max_send_size = MIN(MAX_UDP_SIZE, MIN(expected_size, sender_buf_size));
     clock_gettime(CLOCK_MONOTONIC, &start);
     // send something first
     n = sendton(sockfd, buf, max_send_size, 0,
@@ -205,7 +206,7 @@ call_udpt_epoll(struct sockaddr_in servaddr, unsigned expected_size,
         exit(EXIT_FAILURE);
     }
 
-    max_send_size = MIN(expected_size, sender_buf_size);
+    max_send_size = MIN(MAX_UDP_SIZE, MIN(expected_size, sender_buf_size));
     *received = 0;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
@@ -217,35 +218,38 @@ call_udpt_epoll(struct sockaddr_in servaddr, unsigned expected_size,
         if (DEBUG) printf("%u>>>>%u / %u sendto\n", send_size, sent_size, expected_size);
         sent_size += send_size;
     }
+    if (DEBUG) printf("client finished throughput sent %u\n", sent_size);
 
-    if (DEBUG) printf("client sent %u\n", expected_size);
-    nfds = epoll_wait(epollfd, events, MAX_EVENTS, -1);
-    if (nfds == -1) {
-        perror("epoll_pwait");
-        exit(EXIT_FAILURE);
-    }
+    // the second while is used to receive multiple reply
 
-    for (i = 0; i < nfds; ++i) {
-        if (events[i].events & EPOLLIN) { // readable
-            ret = read(events[i].data.fd, &n, sizeof(int));
-            if (ret < 0) {
-                if (!((errno == EAGAIN) || (errno == EWOULDBLOCK)))
-                    perror("triggered by epoll, but fail on reading");
-                break;
-            } else
-                while (ret) {
-                    *received += n;
+    while (1) {
+        nfds = epoll_wait(epollfd, events, MAX_EVENTS, EPOLL_MILLI_TIMEOUT);
+        if (nfds == -1) {
+            perror("epoll_pwait");
+            exit(EXIT_FAILURE);
+        } else if (nfds == 0)
+            break;
+
+        for (i = 0; i < nfds; ++i) {
+            if (events[i].events & EPOLLIN) { // readable
+                while (1) {
                     // since server will respond to every sent packet, there may be multiple responds
                     ret = read(events[i].data.fd, &n, sizeof(int));
-                    if (DEBUG) printf("<<<<%u echoed\n", n);
                     if (ret < 0) {
                         if (!((errno == EAGAIN) || (errno == EWOULDBLOCK)))
-                            perror("triggered by epoll, but fail on reading");
+                            perror("read error other than nonblock read");
                         break;
+                    } else if (ret == 0) // end of file
+                        break;
+                    else {
+                        // single "ack" response contributes a small amount of time
+                        clock_gettime(CLOCK_MONOTONIC, &end);
+                        *received += n;
+                        if (DEBUG) printf("<<<<%u echoed\n", n);
                     }
                 }
-            clock_gettime(CLOCK_MONOTONIC, &end);
-            if (DEBUG) printf("Sent %u, Received %i\n", expected_size, *received);
+                if (DEBUG) printf("%i / %u ack Received\n", *received, expected_size);
+            }
         }
     }
     *latency = (end.tv_sec - start.tv_sec) * 1000000000 +
@@ -258,9 +262,8 @@ call_udpt_epoll(struct sockaddr_in servaddr, unsigned expected_size,
 int main(int argc, char**argv)
 {
     struct sockaddr_in servaddr;
-    //unsigned chunk_size[] = {4, 16, 64, 256, 1024, 4*1024, 16*1024, 64*1024,
-    //    256*1024, 512*1024};
-    unsigned chunk_size[] = {4, 16, 64, 256, 1024, 4*1024, 16*1024, 32*1024};
+    unsigned chunk_size[] = {4, 16, 64, 256, 1024, 4*1024, 16*1024, 64*1024, 256*1024, 512*1024, 32*1024, 48*1024, 96*1024, 128*1024};
+    //unsigned chunk_size[] = {4, 16, 64, 256, 1024, 4*1024, 16*1024, 32*1024, 64*1024, 96*1024, 128*1024};
     unsigned latency, total_time;
     size_t received;
     int i;
