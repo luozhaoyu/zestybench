@@ -42,7 +42,7 @@ call_tcp(struct sockaddr_in servaddr, bool require_echo, unsigned expected_size,
             end.tv_nsec - start.tv_nsec) / 2;
     } else {
         // measuring througput
-        Readn(sockfd, received, sizeof(int));
+        Readn(sockfd, received, sizeof(received));
         clock_gettime(CLOCK_MONOTONIC, &end);
         *latency = ((end.tv_sec - start.tv_sec) * 1000000000 +
             end.tv_nsec - start.tv_nsec);

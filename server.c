@@ -9,7 +9,8 @@ void
 start_tcp(struct sockaddr_in servaddr)
 {
     struct sockaddr_in cliaddr;
-    int listenfd,connfd,n;
+    int listenfd,connfd;
+    size_t n;
     socklen_t clilen;
     pid_t     childpid;
     char buf[BUF_SIZE];
